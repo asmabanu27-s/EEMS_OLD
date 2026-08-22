@@ -1,0 +1,578 @@
+// ============================================================================
+// EEMS - Employee Management System
+// Prisma Database Schema
+// ============================================================================
+//
+// Database : PostgreSQL
+// ORM      : Prisma 7
+// Runtime  : Node.js + TypeScript
+//
+// Modules currently covered:
+//   1. Authentication / Users
+//   2. Role Based Access Control
+//   3. Organization
+//   4. Employee Management
+//   5. Attendance
+//   6. Leave Management
+//
+// Planned modules:
+//   7. Timesheet
+//   8. Project Monitoring
+//   9. Documents
+//  10. Notifications
+//  11. Reports / Excel Export
+// ============================================================================
+
+// ============================================================================
+// PRISMA CLIENT
+// ============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// ============================================================================
+// DATABASE
+// ============================================================================
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+}
+
+enum RoleCode {
+  ADMIN
+  MANAGER
+  TEAM_LEAD
+  EMPLOYEE
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  TERMINATED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LEAVE
+  HOLIDAY
+  WEEK_OFF
+}
+
+enum AttendanceSessionStatus {
+  OPEN
+  COMPLETED
+  INVALID
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum TimesheetStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum ProjectStatus {
+  PLANNED
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum ProjectMemberRole {
+  MEMBER
+  LEAD
+}
+
+// ============================================================================
+// RBAC - ROLE
+// ============================================================================
+
+model Role {
+  id String @id @default(uuid())
+
+  code        RoleCode @unique
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+
+  users       User[]
+  permissions RolePermission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// RBAC - PERMISSION
+// ============================================================================
+
+model Permission {
+  id String @id @default(uuid())
+
+  code        String  @unique
+  name        String
+  description String?
+
+  roles RolePermission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// RBAC - ROLE PERMISSION
+// ============================================================================
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+// ============================================================================
+// ORGANIZATION - DEPARTMENT
+// ============================================================================
+
+model Department {
+  id String @id @default(uuid())
+
+  name        String  @unique
+  code        String  @unique
+  description String?
+  isActive    Boolean @default(true)
+
+  employees Employee[]
+  teams     Team[]
+  projects  Project[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// ORGANIZATION - TEAM
+// ============================================================================
+
+model Team {
+  id String @id @default(uuid())
+
+  name        String
+  code        String  @unique
+  description String?
+  isActive    Boolean @default(true)
+
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  employees Employee[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([departmentId, name])
+  @@index([departmentId])
+}
+
+// ============================================================================
+// ORGANIZATION - POSITION
+// ============================================================================
+
+model Position {
+  id String @id @default(uuid())
+
+  name        String
+  code        String  @unique
+  description String?
+  isActive    Boolean @default(true)
+
+  employees Employee[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// EMPLOYEE
+// ============================================================================
+
+model Employee {
+  id String @id @default(uuid())
+
+  employeeCode String  @unique
+  firstName    String
+  lastName     String?
+  displayName  String?
+  phone        String?
+
+  dateOfJoining DateTime?
+  dateOfBirth   DateTime?
+
+  status EmployeeStatus @default(ACTIVE)
+
+  departmentId String
+  teamId       String?
+  positionId   String?
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  team       Team?      @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  position   Position?  @relation(fields: [positionId], references: [id], onDelete: SetNull)
+
+  user          User?
+  attendances   Attendance[]
+  leaveRequests LeaveRequest[]
+  timesheets    Timesheet[]
+  notifications Notification[]
+  documents     Document[]
+  ownedProjects Project[]       @relation("ProjectOwner")
+  projects      ProjectMember[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([departmentId])
+  @@index([teamId])
+  @@index([positionId])
+  @@index([status])
+}
+
+// ============================================================================
+// USER
+// ============================================================================
+
+model User {
+  id String @id @default(uuid())
+
+  username     String @unique
+  email        String @unique
+  passwordHash String
+
+  status UserStatus @default(ACTIVE)
+
+  employeeId String?   @unique
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  lastLoginAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([roleId])
+  @@index([status])
+}
+
+// ============================================================================
+// ATTENDANCE
+// ============================================================================
+
+model Attendance {
+  id String @id @default(uuid())
+
+  employeeId     String
+  attendanceDate DateTime         @db.Date
+  status         AttendanceStatus @default(ABSENT)
+  workingMinutes Int              @default(0)
+
+  employee Employee            @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  sessions AttendanceSession[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, attendanceDate])
+  @@index([attendanceDate])
+  @@index([employeeId])
+  @@index([status])
+}
+
+// ============================================================================
+// ATTENDANCE SESSION
+// ============================================================================
+
+model AttendanceSession {
+  id String @id @default(uuid())
+
+  attendanceId   String
+  checkInAt      DateTime
+  checkOutAt     DateTime?
+  workingMinutes Int                     @default(0)
+  status         AttendanceSessionStatus @default(OPEN)
+
+  attendance Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([attendanceId])
+  @@index([checkInAt])
+  @@index([status])
+}
+
+// ============================================================================
+// LEAVE TYPE
+// ============================================================================
+
+model LeaveType {
+  id String @id @default(uuid())
+
+  code        String  @unique
+  name        String
+  description String?
+  isPaid      Boolean @default(true)
+  isActive    Boolean @default(true)
+
+  requests LeaveRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+// ============================================================================
+// LEAVE REQUEST
+// ============================================================================
+
+model LeaveRequest {
+  id String @id @default(uuid())
+
+  employeeId  String
+  leaveTypeId String
+
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+
+  totalDays Decimal @db.Decimal(5, 2)
+  reason    String?
+
+  status    LeaveStatus @default(PENDING)
+  appliedAt DateTime    @default(now())
+
+  approvedAt   DateTime?
+  rejectedAt   DateTime?
+  approverId   String?
+  approvalNote String?
+
+  employee  Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeId])
+  @@index([leaveTypeId])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+// ============================================================================
+// PROJECT MANAGEMENT / MONITORING
+// ============================================================================
+
+model Project {
+  id String @id @default(uuid())
+
+  code        String        @unique
+  name        String
+  description String?
+  status      ProjectStatus @default(PLANNED)
+
+  departmentId    String
+  ownerEmployeeId String
+
+  startDate DateTime? @db.Date
+  endDate   DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department    Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  ownerEmployee Employee   @relation("ProjectOwner", fields: [ownerEmployeeId], references: [id], onDelete: Restrict)
+
+  members ProjectMember[]
+
+  @@index([departmentId])
+  @@index([ownerEmployeeId])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+// ============================================================================
+// PROJECT MEMBERS
+// ============================================================================
+
+model ProjectMember {
+  id String @id @default(uuid())
+
+  projectId  String
+  employeeId String
+
+  role       ProjectMemberRole @default(MEMBER)
+  assignedAt DateTime          @default(now())
+  isActive   Boolean           @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, employeeId])
+  @@index([projectId])
+  @@index([employeeId])
+  @@index([isActive])
+}
+
+// ============================================================================
+// TIMESHEET
+// ============================================================================
+
+model Timesheet {
+  id String @id @default(uuid())
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  workDate        DateTime
+  description     String?
+  taskDescription String?
+  workingMinutes  Int      @default(0)
+
+  status TimesheetStatus @default(DRAFT)
+
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  rejectedAt  DateTime?
+
+  approverEmployeeId String?
+  approvalNote       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, workDate])
+  @@index([employeeId])
+  @@index([workDate])
+  @@index([status])
+  @@index([approverEmployeeId])
+}
+
+// ============================================================================
+// DOCUMENT MANAGEMENT
+// ============================================================================
+
+model Document {
+  id String @id @default(uuid())
+
+  employeeId   String
+  originalName String
+  storedName   String @unique
+  documentType String
+  mimeType     String
+  sizeBytes    Int
+  storagePath  String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([employeeId, documentType])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+
+model Notification {
+  id String @id @default(uuid())
+
+  employeeId String
+  title      String
+  message    String
+  type       String
+  isRead     Boolean   @default(false)
+  readAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([employeeId, isRead])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// AUDIT LOG
+// ============================================================================
+//
+// Immutable application audit trail.
+//
+// Important:
+//   - Never store passwords, JWTs, refresh tokens, or other secrets.
+//   - userId / employeeId may be null when the action is system-generated.
+//   - metadata stores structured non-sensitive contextual information.
+//
+// ============================================================================
+
+model AuditLog {
+  id String @id @default(uuid())
+
+  userId     String?
+  employeeId String?
+
+  action   String
+  entity   String
+  entityId String?
+
+  description String?
+  metadata    Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([employeeId])
+  @@index([action])
+  @@index([entity])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}

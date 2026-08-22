@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage/
+
+# IDE
+.vscode/
+.idea/
+
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+
+# Runtime
+*.pid
+
+# Uploaded files
+uploads/
+
+# Generated files
+generated/
+
+# Secrets / certificates
+*.pem
+*.key
+*.crt
+
+# Prisma local files
+prisma/dev.db
