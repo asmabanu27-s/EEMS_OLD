@@ -7,7 +7,8 @@ import { DashboardPage } from "@/modules/dashboard/pages/DashboardPage";
 import { ProfilePage } from "@/modules/profile/pages/ProfilePage";
 import { SettingsPage } from "@/modules/settings/pages/SettingsPage";
 import { AttendancePage } from "@/modules/attendance/pages/AttendancePage";
-
+import { LeavePage } from "@/modules/leave/pages/LeavePage";
+import { TimesheetPage } from "@/modules/timesheet/pages/TimesheetPage";
 import { ProtectedRoute } from "./ProtectedRoute";
 
 // ============================================================================
@@ -73,6 +74,26 @@ export function AppRoutes() {
         }
       />
 
+      <Route
+        path="/leave"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <LeavePage />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/timesheets"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <TimesheetPage />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
       {/* DEFAULT */}
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

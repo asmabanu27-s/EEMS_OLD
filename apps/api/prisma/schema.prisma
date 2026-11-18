@@ -74,6 +74,7 @@ enum AttendanceStatus {
 enum AttendanceSessionStatus {
   OPEN
   COMPLETED
+  AUTO_COMPLETED
   INVALID
 }
 
@@ -84,11 +85,48 @@ enum LeaveStatus {
   CANCELLED
 }
 
+enum TimesheetDayStatus {
+  MISSED
+  PRESENT
+  WEEK_OFF
+  ABSENT
+  COMPOFF
+  LEAVE
+}
+
+enum TimesheetDaySource {
+  ATTENDANCE
+  MANUAL
+  LEAVE
+  WEEK_OFF
+  COMPOFF
+}
+
+enum TimesheetDayRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum TimesheetSource {
+  ATTENDANCE
+  MANUAL
+}
+
 enum TimesheetStatus {
   DRAFT
   SUBMITTED
   APPROVED
   REJECTED
+  AUTOMATIC
+}
+
+enum TimesheetEditRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
 }
 
 enum ProjectStatus {
@@ -245,14 +283,17 @@ model Employee {
   team       Team?      @relation(fields: [teamId], references: [id], onDelete: SetNull)
   position   Position?  @relation(fields: [positionId], references: [id], onDelete: SetNull)
 
-  user          User?
-  attendances   Attendance[]
-  leaveRequests LeaveRequest[]
-  timesheets    Timesheet[]
-  notifications Notification[]
-  documents     Document[]
-  ownedProjects Project[]       @relation("ProjectOwner")
-  projects      ProjectMember[]
+  user                       User?
+  attendances                Attendance[]
+  leaveRequests              LeaveRequest[]
+  timesheets                 Timesheet[]
+  notifications              Notification[]
+  documents                  Document[]
+  ownedProjects              Project[]                   @relation("ProjectOwner")
+  projects                   ProjectMember[]
+  timesheetEditRequests      TimesheetEditRequest[]
+  timesheetDays              TimesheetDay[]
+  timesheetDayChangeRequests TimesheetDayChangeRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -308,6 +349,8 @@ model Attendance {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  timesheet Timesheet?
 
   @@unique([employeeId, attendanceDate])
   @@index([attendanceDate])
@@ -462,19 +505,150 @@ model ProjectMember {
 model Timesheet {
   id String @id @default(uuid())
 
+  // Employee owning this timesheet.
   employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
 
-  workDate        DateTime
-  description     String?
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  // Attendance record from which the automatic timesheet was generated.
+  attendanceId String? @unique
+
+  attendance Attendance? @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+
+  // Date for which the work is recorded.
+  workDate DateTime
+
+  // General description.
+  description String?
+
+  // Detailed task description.
   taskDescription String?
-  workingMinutes  Int      @default(0)
 
+  // Total working time in minutes.
+  workingMinutes Int @default(0)
+
+  // How the record originated.
+  source TimesheetSource @default(MANUAL)
+
+  // Current workflow state.
   status TimesheetStatus @default(DRAFT)
 
+  // Workflow timestamps.
   submittedAt DateTime?
   approvedAt  DateTime?
   rejectedAt  DateTime?
+
+  // Employee who approved/rejected a correction.
+  approverEmployeeId String?
+
+  // Approval/rejection remarks.
+  approvalNote String?
+
+  // Edit requests raised against this timesheet.
+  editRequests TimesheetEditRequest[]
+
+  // Audit fields.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, workDate])
+  @@index([employeeId])
+  @@index([attendanceId])
+  @@index([workDate])
+  @@index([status])
+  @@index([source])
+  @@index([approverEmployeeId])
+}
+
+model TimesheetEditRequest {
+  id String @id @default(uuid())
+
+  timesheetId String
+
+  employeeId String
+
+  // Requested corrected values.
+  requestedWorkDate DateTime?
+
+  requestedWorkingMinutes Int
+
+  requestedDescription String?
+
+  requestedTaskDescription String?
+
+  // Mandatory explanation for the correction.
+  reason String
+
+  status TimesheetEditRequestStatus @default(PENDING)
+
+  requestedAt DateTime @default(now())
+
+  decidedAt DateTime?
+
+  approverEmployeeId String?
+
+  decisionNote String?
+
+  timesheet Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([timesheetId])
+  @@index([employeeId])
+  @@index([status])
+  @@index([requestedAt])
+}
+
+model TimesheetDay {
+  id String @id @default(uuid())
+
+  employeeId String
+
+  // Calendar date.
+  workDate DateTime @db.Date
+
+  // Display/business status for the calendar.
+  status TimesheetDayStatus @default(MISSED)
+
+  // How the current status was produced.
+  source TimesheetDaySource @default(ATTENDANCE)
+
+  // Optional explanation.
+  reason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  changeRequests TimesheetDayChangeRequest[]
+
+  @@unique([employeeId, workDate])
+  @@index([employeeId])
+  @@index([workDate])
+  @@index([status])
+  @@index([source])
+}
+
+model TimesheetDayChangeRequest {
+  id String @id @default(uuid())
+
+  timesheetDayId String
+  employeeId     String
+
+  requestedStatus TimesheetDayStatus
+
+  reason String
+
+  status TimesheetDayRequestStatus @default(PENDING)
+
+  requestedAt DateTime @default(now())
+
+  approvedAt DateTime?
+  rejectedAt DateTime?
 
   approverEmployeeId String?
   approvalNote       String?
@@ -482,11 +656,14 @@ model Timesheet {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([employeeId, workDate])
+  timesheetDay TimesheetDay @relation(fields: [timesheetDayId], references: [id], onDelete: Cascade)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([timesheetDayId])
   @@index([employeeId])
-  @@index([workDate])
   @@index([status])
-  @@index([approverEmployeeId])
+  @@index([requestedAt])
 }
 
 // ============================================================================

@@ -51,6 +51,15 @@ import {
   rejectTimesheetController,
   submitTimesheetController,
   updateTimesheetController,
+  createTimesheetEditRequestController,
+  listTimesheetEditRequestsController,
+  approveTimesheetEditRequestController,
+  rejectTimesheetEditRequestController,
+  getTimesheetCalendarController,
+  requestTimesheetDayChangeController,
+  approveTimesheetDayChangeController,
+  rejectTimesheetDayChangeController,
+  listTimesheetDayChangeRequestsController,
 } from "./timesheet.controller.js";
 // ============================================================================
 // ROUTER
@@ -115,6 +124,89 @@ router.get(
 );
 
 // ============================================================================
+// TIMESHEET CALENDAR
+// ============================================================================
+//
+// GET /api/timesheets/calendar
+//
+// Examples:
+//   /api/timesheets/calendar?year=2026&month=8
+//   /api/timesheets/calendar?year=2026&month=8&employeeId=<id>
+//
+// IMPORTANT:
+// This route must appear BEFORE /:id.
+// ============================================================================
+
+router.get(
+  "/calendar",
+  authenticate,
+  authorize("TIMESHEET_VIEW"),
+  getTimesheetCalendarController,
+);
+
+// ============================================================================
+// LIST CALENDAR CHANGE REQUESTS
+// ============================================================================
+//
+// GET /api/timesheets/calendar/requests
+//
+// ============================================================================
+
+router.get(
+  "/calendar/requests",
+  authenticate,
+  authorize("TIMESHEET_VIEW"),
+  listTimesheetDayChangeRequestsController,
+);
+
+// ============================================================================
+// REQUEST CALENDAR STATUS CHANGE
+// ============================================================================
+//
+// POST /api/timesheets/calendar/:date/request
+//
+// Example:
+//   POST /api/timesheets/calendar/2026-08-22/request
+//
+// ============================================================================
+
+router.post(
+  "/calendar/:date/request",
+  authenticate,
+  authorize("TIMESHEET_VIEW"),
+  requestTimesheetDayChangeController,
+);
+
+// ============================================================================
+// APPROVE CALENDAR CHANGE
+// ============================================================================
+//
+// POST /api/timesheets/calendar/requests/:id/approve
+//
+// ============================================================================
+
+router.post(
+  "/calendar/requests/:id/approve",
+  authenticate,
+  authorize("TIMESHEET_APPROVE"),
+  approveTimesheetDayChangeController,
+);
+
+// ============================================================================
+// REJECT CALENDAR CHANGE
+// ============================================================================
+//
+// POST /api/timesheets/calendar/requests/:id/reject
+//
+// ============================================================================
+
+router.post(
+  "/calendar/requests/:id/reject",
+  authenticate,
+  authorize("TIMESHEET_APPROVE"),
+  rejectTimesheetDayChangeController,
+);
+// ============================================================================
 // CREATE TIMESHEET
 // ============================================================================
 //
@@ -131,8 +223,59 @@ router.get(
 router.post(
   "/",
   authenticate,
-  authorize("TIMESHEET_VIEW"),
+  authorize("TIMESHEET_APPROVE"),
   createTimesheetController,
+);
+
+// ============================================================================
+// LIST EDIT REQUESTS
+// ============================================================================
+//
+// GET /api/timesheets/edit-requests
+//
+// Employee sees own requests.
+// Manager/Team Lead/Admin see requests within their authorization scope.
+//
+// ============================================================================
+
+router.get(
+  "/edit-requests",
+  authenticate,
+  authorize("TIMESHEET_VIEW"),
+  listTimesheetEditRequestsController,
+);
+
+// ============================================================================
+// APPROVE EDIT REQUEST
+// ============================================================================
+
+router.post(
+  "/edit-requests/:id/approve",
+  authenticate,
+  authorize("TIMESHEET_APPROVE"),
+  approveTimesheetEditRequestController,
+);
+
+// ============================================================================
+// REJECT EDIT REQUEST
+// ============================================================================
+
+router.post(
+  "/edit-requests/:id/reject",
+  authenticate,
+  authorize("TIMESHEET_APPROVE"),
+  rejectTimesheetEditRequestController,
+);
+
+// ============================================================================
+// CREATE EDIT REQUEST
+// ============================================================================
+
+router.post(
+  "/:id/edit-request",
+  authenticate,
+  authorize("TIMESHEET_VIEW"),
+  createTimesheetEditRequestController,
 );
 
 // ============================================================================
@@ -225,7 +368,7 @@ router.post(
 router.post(
   "/:id/approve",
   authenticate,
-  authorize("TIMESHEET_VIEW"),
+  authorize("TIMESHEET_APPROVE"),
   approveTimesheetController,
 );
 
@@ -246,7 +389,7 @@ router.post(
 router.post(
   "/:id/reject",
   authenticate,
-  authorize("TIMESHEET_VIEW"),
+  authorize("TIMESHEET_APPROVE"),
   rejectTimesheetController,
 );
 // ============================================================================

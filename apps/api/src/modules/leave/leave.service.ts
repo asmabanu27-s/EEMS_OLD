@@ -201,6 +201,27 @@ export async function createLeaveRequest(input: CreateLeaveRequestInput) {
 
   const endDate = parseDateOnly(input.endDate, "endDate");
 
+  // ==========================================================================
+// VALIDATE LEAVE DATE IS TODAY OR FUTURE
+// ==========================================================================
+
+const today = new Date();
+
+today.setUTCHours(
+  0,
+  0,
+  0,
+  0,
+);
+
+if (startDate < today) {
+  throw new AppError(
+    "LEAVE_DATE_IN_PAST",
+    "Leave start date cannot be before today",
+    400,
+  );
+}
+
   // --------------------------------------------------------------------------
   // Validate date range.
   // --------------------------------------------------------------------------
@@ -373,6 +394,31 @@ export async function createLeaveRequest(input: CreateLeaveRequestInput) {
   });
 
   return request;
+}
+
+// ============================================================================
+// LIST ACTIVE LEAVE TYPES
+// ============================================================================
+
+export async function listActiveLeaveTypes() {
+  return prisma.leaveType.findMany({
+    where: {
+      isActive: true,
+    },
+
+    orderBy: {
+      name: "asc",
+    },
+
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      description: true,
+      isPaid: true,
+      isActive: true,
+    },
+  });
 }
 
 // ============================================================================

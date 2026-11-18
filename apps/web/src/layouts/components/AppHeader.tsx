@@ -53,7 +53,7 @@ export function AppHeader({ role, user }: AppHeaderProps) {
 
           <SheetContent side="left" className="w-72 p-0">
             <div className="border-b p-6">
-              <div className="text-lg font-semibold">EEMS</div>
+              <div className="text-lg font-semibold">Employee Management System</div>
 
               <p className="text-sm text-muted-foreground">
                 Employee Management System
@@ -92,7 +92,7 @@ export function AppHeader({ role, user }: AppHeaderProps) {
         {/* BRAND */}
         {/* -------------------------------------------------------------- */}
 
-        <div className="font-semibold">EEMS</div>
+        <div className="font-semibold">Employee Management System</div>
       </div>
 
       {/* ================================================================== */}

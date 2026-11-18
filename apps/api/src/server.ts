@@ -2,9 +2,15 @@ import app from "./app.js";
 
 import { env } from "@/config/env.js";
 
+import {
+  startAttendanceAutoCheckoutScheduler,
+} from "@/modules/attendance/attendance.scheduler.js";
+
 const server = app.listen(env.PORT, () => {
   console.log(`EEMS API running on http://localhost:${env.PORT}`);
 });
+
+startAttendanceAutoCheckoutScheduler();
 
 function shutdown(signal: string) {
   console.log(`${signal} received. Shutting down...`);

@@ -98,6 +98,12 @@ export async function exportTimesheetXlsx(
     },
 
     {
+      header: "Source",
+      key: "source",
+      width: 15,
+    },
+
+    {
       header: "Status",
       key: "status",
       width: 15,
@@ -154,6 +160,7 @@ export function exportTimesheetCsv(rows: TimesheetRow[]): Buffer {
     "Last Check-out",
     "Working Minutes",
     "Working Hours",
+    "Source",
     "Status",
   ];
 
@@ -174,6 +181,7 @@ export function exportTimesheetCsv(rows: TimesheetRow[]): Buffer {
         row.lastCheckOut,
         row.workingMinutes,
         row.workingHours,
+        row.source,
         row.status,
       ]
         .map(escapeCsvValue)

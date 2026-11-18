@@ -1945,6 +1945,280 @@ export const swaggerDocument = {
         },
       },
     },
+    "/api/timesheets/calendar": {
+  get: {
+    tags: ["Timesheets"],
+    summary: "Get Timesheet calendar",
+    description:
+      "Returns the authenticated employee's calendar for a selected month. Management roles may provide employeeId when within their organizational scope.",
+    security: [
+      {
+        bearerAuth: [],
+      },
+    ],
+    parameters: [
+      {
+        in: "query",
+        name: "year",
+        required: true,
+        schema: {
+          type: "integer",
+          example: 2026,
+        },
+      },
+      {
+        in: "query",
+        name: "month",
+        required: true,
+        schema: {
+          type: "integer",
+          minimum: 1,
+          maximum: 12,
+          example: 8,
+        },
+      },
+      {
+        in: "query",
+        name: "employeeId",
+        required: false,
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+      },
+    ],
+    responses: {
+      "200": {
+        description:
+          "Timesheet calendar returned successfully.",
+      },
+      "400": {
+        description:
+          "Invalid calendar month or year.",
+      },
+      "401": {
+        description:
+          "Authentication required.",
+      },
+      "403": {
+        description:
+          "Calendar access denied.",
+      },
+    },
+  },
+},
+
+"/api/timesheets/calendar/{date}/request": {
+  post: {
+    tags: ["Timesheets"],
+    summary:
+      "Request a Timesheet calendar status change",
+    description:
+      "Creates a status-change request for a calendar date. Future dates are not allowed.",
+    security: [
+      {
+        bearerAuth: [],
+      },
+    ],
+    parameters: [
+      {
+        in: "path",
+        name: "date",
+        required: true,
+        schema: {
+          type: "string",
+          format: "date",
+          example: "2026-08-22",
+        },
+      },
+    ],
+    requestBody: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            required: [
+              "requestedStatus",
+              "reason",
+            ],
+            properties: {
+              requestedStatus: {
+                type: "string",
+                enum: [
+                  "MISSED",
+                  "PRESENT",
+                  "WEEK_OFF",
+                  "ABSENT",
+                  "COMPOFF",
+                  "LEAVE",
+                ],
+                example: "PRESENT",
+              },
+              reason: {
+                type: "string",
+                example:
+                  "Forgot to check in",
+              },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      "201": {
+        description:
+          "Status-change request created successfully.",
+      },
+      "400": {
+        description:
+          "Invalid date or request data.",
+      },
+      "401": {
+        description:
+          "Authentication required.",
+      },
+      "403": {
+        description:
+          "Calendar access denied.",
+      },
+      "409": {
+        description:
+          "A pending request already exists.",
+      },
+    },
+  },
+},
+
+"/api/timesheets/calendar/requests/{id}/approve": {
+  post: {
+    tags: ["Timesheets"],
+    summary:
+      "Approve a Timesheet calendar status-change request",
+    description:
+      "Approves a pending calendar status-change request within the approver's organizational scope.",
+    security: [
+      {
+        bearerAuth: [],
+      },
+    ],
+    parameters: [
+      {
+        in: "path",
+        name: "id",
+        required: true,
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+      },
+    ],
+    requestBody: {
+      required: false,
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            properties: {
+              approvalNote: {
+                type: "string",
+                example:
+                  "Approved after verification.",
+              },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      "200": {
+        description:
+          "Calendar status-change request approved.",
+      },
+      "400": {
+        description:
+          "Request is not pending.",
+      },
+      "401": {
+        description:
+          "Authentication required.",
+      },
+      "403": {
+        description:
+          "Approval scope denied.",
+      },
+      "404": {
+        description:
+          "Change request not found.",
+      },
+    },
+  },
+},
+
+"/api/timesheets/calendar/requests/{id}/reject": {
+  post: {
+    tags: ["Timesheets"],
+    summary:
+      "Reject a Timesheet calendar status-change request",
+    description:
+      "Rejects a pending calendar status-change request within the approver's organizational scope.",
+    security: [
+      {
+        bearerAuth: [],
+      },
+    ],
+    parameters: [
+      {
+        in: "path",
+        name: "id",
+        required: true,
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+      },
+    ],
+    requestBody: {
+      required: false,
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            properties: {
+              approvalNote: {
+                type: "string",
+                example:
+                  "Insufficient supporting information.",
+              },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      "200": {
+        description:
+          "Calendar status-change request rejected.",
+      },
+      "400": {
+        description:
+          "Request is not pending.",
+      },
+      "401": {
+        description:
+          "Authentication required.",
+      },
+      "403": {
+        description:
+          "Approval scope denied.",
+      },
+      "404": {
+        description:
+          "Change request not found.",
+      },
+    },
+  },
+},
 
     "/api/timesheets/export": {
       get: {

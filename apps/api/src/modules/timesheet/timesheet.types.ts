@@ -3,7 +3,18 @@
 // Timesheet Module Types
 // ============================================================================
 
-import type { RoleCode, TimesheetStatus } from "@/generated/prisma/enums.js";
+import type {
+  RoleCode,
+  TimesheetEditRequestStatus,
+  TimesheetSource,
+  TimesheetStatus,
+} from "@/generated/prisma/enums.js";
+
+import type {
+  TimesheetDayRequestStatus,
+  TimesheetDaySource,
+  TimesheetDayStatus,
+} from "@/generated/prisma/enums.js";
 
 // ============================================================================
 // PAGINATION
@@ -98,6 +109,8 @@ export interface TimesheetRecord {
 
   displayName: string | null;
 
+  attendanceId: string | null;
+
   workDate: string;
 
   description: string | null;
@@ -105,6 +118,8 @@ export interface TimesheetRecord {
   taskDescription: string | null;
 
   workingMinutes: number;
+
+  source: TimesheetSource;
 
   status: TimesheetStatus;
 
@@ -121,6 +136,59 @@ export interface TimesheetRecord {
   createdAt: string;
 
   updatedAt: string;
+}
+
+// ============================================================================
+// TIMESHEET EDIT REQUEST
+// ============================================================================
+
+export interface TimesheetEditRequestInput {
+  requestedWorkDate?: string;
+  requestedWorkingMinutes: number;
+  requestedDescription?: string | null;
+  requestedTaskDescription?: string | null;
+  reason: string;
+}
+
+export interface TimesheetEditRequestListQuery {
+  employeeId?: string | undefined;
+  status?: TimesheetEditRequestStatus | undefined;
+  page?: number | undefined;
+  limit?: number | undefined;
+}
+
+export interface TimesheetEditRequestRecord {
+  id: string;
+  timesheetId: string;
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  workDate: string;
+  currentWorkingMinutes: number;
+  requestedWorkDate: string | null;
+  requestedWorkingMinutes: number;
+  currentDescription: string | null;
+  requestedDescription: string | null;
+  currentTaskDescription: string | null;
+  requestedTaskDescription: string | null;
+  reason: string;
+  status: TimesheetEditRequestStatus;
+  requestedAt: string;
+  decidedAt: string | null;
+  approverEmployeeId: string | null;
+  decisionNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TimesheetEditRequestListResult {
+  records: TimesheetEditRequestRecord[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 // ============================================================================
@@ -166,6 +234,8 @@ export interface TimesheetRow {
 
   workingHours: string;
 
+  source: TimesheetSource;
+
   status: TimesheetStatus;
 }
 
@@ -175,6 +245,136 @@ export interface TimesheetRow {
 
 export interface TimesheetListResult {
   records: TimesheetRecord[];
+
+  pagination: {
+    page: number;
+
+    limit: number;
+
+    total: number;
+
+    totalPages: number;
+  };
+}
+
+// ============================================================================
+// TIMESHEET CALENDAR
+// ============================================================================
+
+export interface TimesheetCalendarQuery {
+  month: number;
+  year: number;
+  employeeId?: string | undefined;
+}
+
+export interface TimesheetCalendarDay {
+  date: string;
+
+  status: TimesheetDayStatus | null;
+
+  source: TimesheetDaySource | null;
+
+  reason: string | null;
+
+  workingMinutes: number;
+
+  timesheetId: string | null;
+
+  attendanceId: string | null;
+
+  pendingRequest: TimesheetDayChangeRequestSummary | null;
+
+  leaveApproved: boolean;
+
+  leaveWorked: boolean;
+
+  isFuture: boolean;
+
+  isToday: boolean;
+}
+
+export interface TimesheetCalendarResult {
+  year: number;
+
+  month: number;
+
+  employeeId: string;
+
+  employeeCode: string;
+
+  employeeName: string;
+
+  days: TimesheetCalendarDay[];
+}
+
+export interface TimesheetDayChangeRequestInput {
+  requestedStatus: TimesheetDayStatus;
+
+  reason: string;
+}
+
+export interface TimesheetDayChangeRequestSummary {
+  id: string;
+
+  requestedStatus: TimesheetDayStatus;
+
+  reason: string;
+
+  status: TimesheetDayRequestStatus;
+
+  requestedAt: string;
+
+  approverEmployeeId: string | null;
+
+  approvalNote: string | null;
+}
+
+export interface TimesheetDayDecisionInput {
+  approvalNote?: string | undefined;
+}
+
+// ============================================================================
+// TIMESHEET CALENDAR REQUEST LIST
+// ============================================================================
+
+export interface TimesheetDayChangeRequestListQuery {
+  employeeId?: string | undefined;
+
+  status?: TimesheetDayRequestStatus | undefined;
+
+  page?: number | undefined;
+
+  limit?: number | undefined;
+}
+
+export interface TimesheetDayChangeRequestRecord {
+  id: string;
+
+  employeeId: string;
+
+  employeeCode: string;
+
+  employeeName: string;
+
+  workDate: string;
+
+  currentStatus: TimesheetDayStatus;
+
+  requestedStatus: TimesheetDayStatus;
+
+  reason: string;
+
+  status: TimesheetDayRequestStatus;
+
+  requestedAt: string;
+
+  approverEmployeeId: string | null;
+
+  approvalNote: string | null;
+}
+
+export interface TimesheetDayChangeRequestListResult {
+  records: TimesheetDayChangeRequestRecord[];
 
   pagination: {
     page: number;

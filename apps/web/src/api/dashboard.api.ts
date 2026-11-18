@@ -58,17 +58,15 @@ interface ApiResponse<T> {
 }
 
 export async function getReportSummary(): Promise<ReportSummary> {
-  const response = await api.get<ApiResponse<ReportSummary>>(
-    "/reports/summary",
-  );
+  const response =
+    await api.get<ApiResponse<ReportSummary>>("/reports/summary");
 
   return response.data.data;
 }
 
 export async function getTodayAttendance(): Promise<AttendanceRecord> {
-  const response = await api.get<ApiResponse<AttendanceRecord>>(
-    "/attendance/today",
-  );
+  const response =
+    await api.get<ApiResponse<AttendanceRecord>>("/attendance/today");
 
   return response.data.data;
 }

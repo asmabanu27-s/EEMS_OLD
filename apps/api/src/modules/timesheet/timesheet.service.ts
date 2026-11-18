@@ -5,6 +5,8 @@
 import {
   EmployeeStatus,
   RoleCode,
+  TimesheetEditRequestStatus,
+  TimesheetSource,
   TimesheetStatus,
 } from "@/generated/prisma/enums.js";
 
@@ -15,6 +17,10 @@ import { AppError } from "@/middleware/app-error.js";
 import type {
   CreateTimesheetInput,
   TimesheetDecisionInput,
+  TimesheetEditRequestInput,
+  TimesheetEditRequestListQuery,
+  TimesheetEditRequestListResult,
+  TimesheetEditRequestRecord,
   TimesheetListQuery,
   TimesheetListResult,
   TimesheetRecord,
@@ -121,6 +127,8 @@ function mapRecord(record: any): TimesheetRecord {
 
     displayName: record.employee.displayName,
 
+    attendanceId: record.attendanceId ?? null,
+
     workDate: formatDate(record.workDate),
 
     description: record.description,
@@ -128,6 +136,8 @@ function mapRecord(record: any): TimesheetRecord {
     taskDescription: record.taskDescription,
 
     workingMinutes: record.workingMinutes,
+
+    source: record.source,
 
     status: record.status,
 
@@ -145,6 +155,104 @@ function mapRecord(record: any): TimesheetRecord {
 
     updatedAt: record.updatedAt.toISOString(),
   };
+}
+
+// ============================================================================
+// SYNC FROM ATTENDANCE
+// ============================================================================
+
+export async function syncTimesheetFromAttendance(
+  employeeId: string,
+  attendanceId: string,
+  workDate: string,
+  workingMinutes: number,
+): Promise<TimesheetRecord> {
+  await getActiveEmployee(employeeId);
+
+  const parsedWorkDate = parseDateOnly(workDate, "workDate");
+
+  if (!Number.isInteger(workingMinutes) || workingMinutes < 0) {
+    throw new AppError(
+      "INVALID_WORKING_MINUTES",
+      "workingMinutes must be a non-negative integer",
+      400,
+    );
+  }
+
+  const existing = await prisma.timesheet.findUnique({
+    where: {
+      employeeId_workDate: {
+        employeeId,
+        workDate: parsedWorkDate,
+      },
+    },
+    include: {
+      employee: {
+        select: {
+          id: true,
+          employeeCode: true,
+          firstName: true,
+          lastName: true,
+          displayName: true,
+        },
+      },
+    },
+  });
+
+  if (existing && existing.source !== TimesheetSource.ATTENDANCE) {
+    return mapRecord(existing);
+  }
+
+  if (existing) {
+    const updated = await prisma.timesheet.update({
+      where: { id: existing.id },
+      data: {
+        attendanceId,
+        workingMinutes,
+        source: TimesheetSource.ATTENDANCE,
+        status: TimesheetStatus.AUTOMATIC,
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            firstName: true,
+            lastName: true,
+            displayName: true,
+          },
+        },
+      },
+    });
+
+    return mapRecord(updated);
+  }
+
+  const created = await prisma.timesheet.create({
+    data: {
+      employeeId,
+      attendanceId,
+      workDate: parsedWorkDate,
+      description: null,
+      taskDescription: null,
+      workingMinutes,
+      source: TimesheetSource.ATTENDANCE,
+      status: TimesheetStatus.AUTOMATIC,
+    },
+    include: {
+      employee: {
+        select: {
+          id: true,
+          employeeCode: true,
+          firstName: true,
+          lastName: true,
+          displayName: true,
+        },
+      },
+    },
+  });
+
+  return mapRecord(created);
 }
 
 // ============================================================================
@@ -195,6 +303,8 @@ export async function createTimesheet(
       taskDescription: input.taskDescription?.trim() || null,
 
       workingMinutes: input.workingMinutes,
+
+      source: TimesheetSource.MANUAL,
 
       status: TimesheetStatus.DRAFT,
     },
@@ -276,6 +386,17 @@ export async function updateTimesheet(
       "TIMESHEET_ACCESS_DENIED",
       "You can only modify your own timesheets",
       403,
+    );
+  }
+
+  if (
+    record.status === TimesheetStatus.AUTOMATIC ||
+    record.source === TimesheetSource.ATTENDANCE
+  ) {
+    throw new AppError(
+      "TIMESHEET_EDIT_REQUEST_REQUIRED",
+      "Automatic timesheets cannot be edited directly. Submit a timesheet edit request.",
+      409,
     );
   }
 
@@ -382,6 +503,17 @@ export async function submitTimesheet(
   }
 
   if (
+    record.status === TimesheetStatus.AUTOMATIC ||
+    record.source === TimesheetSource.ATTENDANCE
+  ) {
+    throw new AppError(
+      "TIMESHEET_EDIT_REQUEST_REQUIRED",
+      "Automatic timesheets do not require direct submission. Submit an edit request for corrections.",
+      409,
+    );
+  }
+
+  if (
     record.status !== TimesheetStatus.DRAFT &&
     record.status !== TimesheetStatus.REJECTED
   ) {
@@ -465,12 +597,9 @@ export async function approveTimesheet(
 
   await assertApprovalScope(approver, record.employee);
 
-  // Use an atomic status guard so two concurrent approval requests
-  // cannot both transition the same SUBMITTED record.
-  const updatedResult = await prisma.timesheet.updateMany({
+  const updated = await prisma.timesheet.update({
     where: {
       id,
-      status: TimesheetStatus.SUBMITTED,
     },
 
     data: {
@@ -478,25 +607,9 @@ export async function approveTimesheet(
 
       approvedAt: new Date(),
 
-      rejectedAt: null,
-
       approverEmployeeId,
 
       approvalNote: note?.trim() || null,
-    },
-  });
-
-  if (updatedResult.count !== 1) {
-    throw new AppError(
-      "INVALID_TIMESHEET_STATUS",
-      "Only SUBMITTED timesheets can be approved",
-      400,
-    );
-  }
-
-  const updated = await prisma.timesheet.findUnique({
-    where: {
-      id,
     },
 
     include: {
@@ -511,10 +624,6 @@ export async function approveTimesheet(
       },
     },
   });
-
-  if (!updated) {
-    throw new AppError("TIMESHEET_NOT_FOUND", "Timesheet not found", 404);
-  }
 
   return mapRecord(updated);
 }
@@ -561,12 +670,9 @@ export async function rejectTimesheet(
 
   await assertApprovalScope(approver, record.employee);
 
-  // Use an atomic status guard so concurrent approve/reject requests
-  // cannot both transition the same SUBMITTED record.
-  const updatedResult = await prisma.timesheet.updateMany({
+  const updated = await prisma.timesheet.update({
     where: {
       id,
-      status: TimesheetStatus.SUBMITTED,
     },
 
     data: {
@@ -579,20 +685,6 @@ export async function rejectTimesheet(
       approverEmployeeId,
 
       approvalNote: note?.trim() || null,
-    },
-  });
-
-  if (updatedResult.count !== 1) {
-    throw new AppError(
-      "INVALID_TIMESHEET_STATUS",
-      "Only SUBMITTED timesheets can be rejected",
-      400,
-    );
-  }
-
-  const updated = await prisma.timesheet.findUnique({
-    where: {
-      id,
     },
 
     include: {
@@ -608,11 +700,443 @@ export async function rejectTimesheet(
     },
   });
 
-  if (!updated) {
+  return mapRecord(updated);
+}
+
+// ============================================================================
+// EDIT REQUEST MAPPER
+// ============================================================================
+
+function mapEditRequest(record: any): TimesheetEditRequestRecord {
+  const employee = record.timesheet.employee;
+
+  return {
+    id: record.id,
+    timesheetId: record.timesheetId,
+    employeeId: record.employeeId,
+    employeeCode: employee.employeeCode,
+    employeeName:
+      employee.displayName ??
+      [employee.firstName, employee.lastName].filter(Boolean).join(" "),
+    workDate: formatDate(record.timesheet.workDate),
+    currentWorkingMinutes: record.timesheet.workingMinutes,
+    requestedWorkDate: record.requestedWorkDate
+      ? formatDate(record.requestedWorkDate)
+      : null,
+    requestedWorkingMinutes: record.requestedWorkingMinutes,
+    currentDescription: record.timesheet.description,
+    requestedDescription: record.requestedDescription,
+    currentTaskDescription: record.timesheet.taskDescription,
+    requestedTaskDescription: record.requestedTaskDescription,
+    reason: record.reason,
+    status: record.status,
+    requestedAt: record.requestedAt.toISOString(),
+    decidedAt: record.decidedAt?.toISOString() ?? null,
+    approverEmployeeId: record.approverEmployeeId,
+    decisionNote: record.decisionNote,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+// ============================================================================
+// CREATE EDIT REQUEST
+// ============================================================================
+
+export async function createTimesheetEditRequest(
+  timesheetId: string,
+  employeeId: string,
+  input: TimesheetEditRequestInput,
+): Promise<TimesheetEditRequestRecord> {
+  await getActiveEmployee(employeeId);
+
+  const timesheet = await prisma.timesheet.findUnique({
+    where: { id: timesheetId },
+    include: {
+      employee: {
+        select: {
+          id: true,
+          employeeCode: true,
+          firstName: true,
+          lastName: true,
+          displayName: true,
+        },
+      },
+    },
+  });
+
+  if (!timesheet) {
     throw new AppError("TIMESHEET_NOT_FOUND", "Timesheet not found", 404);
   }
 
-  return mapRecord(updated);
+  if (timesheet.employeeId !== employeeId) {
+    throw new AppError(
+      "TIMESHEET_ACCESS_DENIED",
+      "You can only request corrections for your own timesheets",
+      403,
+    );
+  }
+
+  if (timesheet.source !== TimesheetSource.ATTENDANCE) {
+    throw new AppError(
+      "TIMESHEET_EDIT_REQUEST_NOT_ALLOWED",
+      "Edit requests are only available for attendance-generated timesheets",
+      409,
+    );
+  }
+
+  if (
+    !Number.isInteger(input.requestedWorkingMinutes) ||
+    input.requestedWorkingMinutes < 0
+  ) {
+    throw new AppError(
+      "INVALID_WORKING_MINUTES",
+      "requestedWorkingMinutes must be a non-negative integer",
+      400,
+    );
+  }
+
+  const reason = input.reason.trim();
+
+  if (!reason) {
+    throw new AppError(
+      "EDIT_REASON_REQUIRED",
+      "A reason is required for a timesheet correction",
+      400,
+    );
+  }
+
+  if (reason.length > 2000) {
+    throw new AppError(
+      "EDIT_REASON_TOO_LONG",
+      "Edit reason cannot exceed 2000 characters",
+      400,
+    );
+  }
+
+  const pending = await prisma.timesheetEditRequest.findFirst({
+    where: {
+      timesheetId,
+      employeeId,
+      status: TimesheetEditRequestStatus.PENDING,
+    },
+  });
+
+  if (pending) {
+    throw new AppError(
+      "EDIT_REQUEST_EXISTS",
+      "A pending edit request already exists for this timesheet",
+      409,
+    );
+  }
+
+  const request = await prisma.timesheetEditRequest.create({
+    data: {
+      timesheetId,
+      employeeId,
+      requestedWorkDate: input.requestedWorkDate
+        ? parseDateOnly(input.requestedWorkDate, "requestedWorkDate")
+        : null,
+      requestedWorkingMinutes: input.requestedWorkingMinutes,
+      requestedDescription: input.requestedDescription?.trim() || null,
+      requestedTaskDescription: input.requestedTaskDescription?.trim() || null,
+      reason,
+      status: TimesheetEditRequestStatus.PENDING,
+    },
+    include: {
+      timesheet: {
+        include: {
+          employee: {
+            select: {
+              id: true,
+              employeeCode: true,
+              firstName: true,
+              lastName: true,
+              displayName: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return mapEditRequest(request);
+}
+
+// ============================================================================
+// LIST EDIT REQUESTS
+// ============================================================================
+
+export async function listTimesheetEditRequests(
+  scope: TimesheetScope,
+  query: TimesheetEditRequestListQuery = {},
+): Promise<TimesheetEditRequestListResult> {
+  const page =
+    query.page && query.page > 0 ? Math.floor(query.page) : DEFAULT_PAGE;
+  const limit =
+    query.limit && query.limit > 0
+      ? Math.min(Math.floor(query.limit), MAX_LIMIT)
+      : DEFAULT_LIMIT;
+  const skip = (page - 1) * limit;
+
+  const employeeWhere = await buildEditRequestEmployeeWhere(
+    scope,
+    query.employeeId,
+  );
+
+  const where = {
+    ...employeeWhere,
+    ...(query.status ? { status: query.status } : {}),
+  };
+
+  const [records, total] = await prisma.$transaction([
+    prisma.timesheetEditRequest.findMany({
+      where,
+      orderBy: { requestedAt: "desc" },
+      skip,
+      take: limit,
+      include: {
+        timesheet: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                employeeCode: true,
+                firstName: true,
+                lastName: true,
+                displayName: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.timesheetEditRequest.count({ where }),
+  ]);
+
+  return {
+    records: records.map(mapEditRequest),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+    },
+  };
+}
+
+// ============================================================================
+// APPROVE EDIT REQUEST
+// ============================================================================
+
+export async function approveTimesheetEditRequest(
+  requestId: string,
+  approverEmployeeId: string,
+  note?: string,
+): Promise<TimesheetRecord> {
+  const request = await prisma.timesheetEditRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      timesheet: {
+        include: {
+          employee: {
+            select: {
+              id: true,
+              departmentId: true,
+              teamId: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!request) {
+    throw new AppError(
+      "EDIT_REQUEST_NOT_FOUND",
+      "Timesheet edit request not found",
+      404,
+    );
+  }
+
+  if (request.status !== TimesheetEditRequestStatus.PENDING) {
+    throw new AppError(
+      "INVALID_EDIT_REQUEST_STATUS",
+      "Only PENDING edit requests can be approved",
+      409,
+    );
+  }
+
+  const approver = await getActiveEmployee(approverEmployeeId);
+
+  await assertApprovalScope(approver, request.timesheet.employee);
+
+  const now = new Date();
+
+  const updatedTimesheet = await prisma.$transaction(async (tx) => {
+    const guarded = await tx.timesheetEditRequest.updateMany({
+      where: {
+        id: requestId,
+        status: TimesheetEditRequestStatus.PENDING,
+      },
+      data: {
+        status: TimesheetEditRequestStatus.APPROVED,
+        decidedAt: now,
+        approverEmployeeId,
+        decisionNote: note?.trim() || null,
+      },
+    });
+
+    if (guarded.count !== 1) {
+      throw new AppError(
+        "INVALID_EDIT_REQUEST_STATUS",
+        "The edit request is no longer pending",
+        409,
+      );
+    }
+
+    const data: {
+      workDate?: Date;
+      workingMinutes: number;
+      description: string | null;
+      taskDescription: string | null;
+      source: TimesheetSource;
+      status: TimesheetStatus;
+      approvedAt: Date;
+      rejectedAt: Date | null;
+      approverEmployeeId: string;
+      approvalNote: string | null;
+    } = {
+      workingMinutes: request.requestedWorkingMinutes,
+      description: request.requestedDescription,
+      taskDescription: request.requestedTaskDescription,
+      source: TimesheetSource.ATTENDANCE,
+      status: TimesheetStatus.APPROVED,
+      approvedAt: now,
+      rejectedAt: null,
+      approverEmployeeId,
+      approvalNote: note?.trim() || null,
+    };
+
+    if (request.requestedWorkDate) {
+      data.workDate = request.requestedWorkDate;
+    }
+
+    return tx.timesheet.update({
+      where: { id: request.timesheetId },
+      data,
+      include: {
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            firstName: true,
+            lastName: true,
+            displayName: true,
+          },
+        },
+      },
+    });
+  });
+
+  return mapRecord(updatedTimesheet);
+}
+
+// ============================================================================
+// REJECT EDIT REQUEST
+// ============================================================================
+
+export async function rejectTimesheetEditRequest(
+  requestId: string,
+  approverEmployeeId: string,
+  note?: string,
+): Promise<TimesheetEditRequestRecord> {
+  const request = await prisma.timesheetEditRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      timesheet: {
+        include: {
+          employee: {
+            select: {
+              id: true,
+              departmentId: true,
+              teamId: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!request) {
+    throw new AppError(
+      "EDIT_REQUEST_NOT_FOUND",
+      "Timesheet edit request not found",
+      404,
+    );
+  }
+
+  if (request.status !== TimesheetEditRequestStatus.PENDING) {
+    throw new AppError(
+      "INVALID_EDIT_REQUEST_STATUS",
+      "Only PENDING edit requests can be rejected",
+      409,
+    );
+  }
+
+  const approver = await getActiveEmployee(approverEmployeeId);
+
+  await assertApprovalScope(approver, request.timesheet.employee);
+
+  const updated = await prisma.timesheetEditRequest.updateMany({
+    where: {
+      id: requestId,
+      status: TimesheetEditRequestStatus.PENDING,
+    },
+    data: {
+      status: TimesheetEditRequestStatus.REJECTED,
+      decidedAt: new Date(),
+      approverEmployeeId,
+      decisionNote: note?.trim() || null,
+    },
+  });
+
+  if (updated.count !== 1) {
+    throw new AppError(
+      "INVALID_EDIT_REQUEST_STATUS",
+      "The edit request is no longer pending",
+      409,
+    );
+  }
+
+  const result = await prisma.timesheetEditRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      timesheet: {
+        include: {
+          employee: {
+            select: {
+              id: true,
+              employeeCode: true,
+              firstName: true,
+              lastName: true,
+              displayName: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!result) {
+    throw new AppError(
+      "EDIT_REQUEST_NOT_FOUND",
+      "Timesheet edit request not found",
+      404,
+    );
+  }
+
+  return mapEditRequest(result);
 }
 
 // ============================================================================
@@ -808,6 +1332,38 @@ async function buildScopeWhere(
 }
 
 // ============================================================================
+// EDIT REQUEST SCOPE
+// ============================================================================
+
+async function buildEditRequestEmployeeWhere(
+  scope: TimesheetScope,
+  requestedEmployeeId?: string,
+) {
+  const timesheetScope = await buildScopeWhere(scope, requestedEmployeeId);
+
+  if ("employeeId" in timesheetScope) {
+    return {
+      employeeId: timesheetScope.employeeId,
+    };
+  }
+
+  if ("employee" in timesheetScope) {
+    const employees = await prisma.employee.findMany({
+      where: timesheetScope.employee,
+      select: { id: true },
+    });
+
+    return {
+      employeeId: {
+        in: employees.map((employee) => employee.id),
+      },
+    };
+  }
+
+  return {};
+}
+
+// ============================================================================
 // RECORD SCOPE
 // ============================================================================
 
@@ -906,9 +1462,6 @@ async function assertApprovalScope(
 
   const role = user.user?.role.code;
 
-  // A user must never approve or reject their own timesheet.
-  // This applies to ADMIN as well; administrative scope does not bypass
-  // the fundamental self-approval control.
   if (approver.id === target.id) {
     throw new AppError(
       "TIMESHEET_SELF_APPROVAL_DENIED",

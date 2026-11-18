@@ -45,19 +45,40 @@ import {
   approveTimesheet,
   rejectTimesheet,
   listTimesheets,
+  createTimesheetEditRequest,
+  listTimesheetEditRequests,
+  approveTimesheetEditRequest,
+  rejectTimesheetEditRequest,
 } from "./timesheet.service.js";
 
-import { TimesheetStatus } from "@/generated/prisma/enums.js";
+import {
+  TimesheetEditRequestStatus,
+  TimesheetStatus,
+  TimesheetDayRequestStatus,
+} from "@/generated/prisma/enums.js";
 
 import { AppError } from "@/middleware/app-error.js";
 
 import type {
   CreateTimesheetInput,
   TimesheetDecisionInput,
+  TimesheetEditRequestInput,
+  TimesheetEditRequestListQuery,
   TimesheetListQuery,
   TimesheetScope,
   UpdateTimesheetInput,
+  TimesheetCalendarQuery,
+  TimesheetDayChangeRequestInput,
+  TimesheetDayDecisionInput,
 } from "./timesheet.types.js";
+
+import {
+  getTimesheetCalendar,
+  requestTimesheetDayChange,
+  approveTimesheetDayChange,
+  rejectTimesheetDayChange,
+  listTimesheetDayChangeRequests,
+} from "./timesheet.calendar.service.js";
 
 import { exportTimesheetCsv, exportTimesheetXlsx } from "./timesheet.export.js";
 
@@ -217,6 +238,395 @@ export async function listTimesheetsController(
     data: result.records,
     meta: result.pagination,
   });
+}
+
+// ============================================================================
+// CALENDAR
+// ============================================================================
+//
+// GET /api/timesheets/calendar
+//
+// Query:
+//   ?year=2026
+//   ?month=8
+//   ?employeeId=<optional for management>
+//
+// ============================================================================
+
+export async function getTimesheetCalendarController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const scope = getScope(req);
+
+  const year = parseCalendarInteger(req.query.year, "year");
+
+  const month = parseCalendarInteger(req.query.month, "month");
+
+  const employeeId =
+    typeof req.query.employeeId === "string"
+      ? req.query.employeeId.trim()
+      : undefined;
+
+  const query: TimesheetCalendarQuery = {
+    year,
+    month,
+
+    ...(employeeId
+      ? {
+          employeeId,
+        }
+      : {}),
+  };
+
+  const result = await getTimesheetCalendar(scope, query);
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+// ============================================================================
+// LIST CALENDAR CHANGE REQUESTS
+// ============================================================================
+//
+// GET /api/timesheets/calendar/requests
+//
+// Employee:
+//   Own requests.
+//
+// Manager / Team Lead / Admin:
+//   Requests within authorized scope.
+//
+// ============================================================================
+
+export async function listTimesheetDayChangeRequestsController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const scope = getScope(req);
+
+  const employeeId =
+    typeof req.query.employeeId === "string"
+      ? req.query.employeeId.trim()
+      : undefined;
+
+  const status =
+    typeof req.query.status === "string"
+      ? parseTimesheetDayRequestStatus(req.query.status)
+      : undefined;
+
+  const page = parseCalendarOptionalInteger(req.query.page, "page");
+
+  const limit = parseCalendarOptionalInteger(req.query.limit, "limit");
+
+  const result = await listTimesheetDayChangeRequests(scope, {
+    ...(employeeId
+      ? {
+          employeeId,
+        }
+      : {}),
+
+    ...(status
+      ? {
+          status,
+        }
+      : {}),
+
+    ...(page !== undefined
+      ? {
+          page,
+        }
+      : {}),
+
+    ...(limit !== undefined
+      ? {
+          limit,
+        }
+      : {}),
+  });
+
+  res.status(200).json({
+    success: true,
+    data: result.records,
+    meta: result.pagination,
+  });
+}
+// ============================================================================
+// REQUEST CALENDAR STATUS CHANGE
+// ============================================================================
+//
+// POST /api/timesheets/calendar/:date/request
+//
+// Body:
+// {
+//   requestedStatus: "PRESENT",
+//   reason: "Forgot to mark attendance"
+// }
+//
+// ============================================================================
+
+export async function requestTimesheetDayChangeController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const scope = getScope(req);
+
+  const employeeId = getEmployeeId(req);
+
+  const date = getDatePathParameter(req);
+
+  const input = parseTimesheetDayChangeInput(req.body);
+
+  const result = await requestTimesheetDayChange(
+    scope,
+    employeeId,
+    date,
+    input,
+  );
+
+  res.status(201).json({
+    success: true,
+    data: result,
+  });
+}
+
+// ============================================================================
+// APPROVE CALENDAR STATUS CHANGE
+// ============================================================================
+
+export async function approveTimesheetDayChangeController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const scope = getScope(req);
+
+  const id = getPathId(req);
+
+  const input = parseTimesheetDayDecisionInput(req.body);
+
+  const result = await approveTimesheetDayChange(scope, id, input);
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+// ============================================================================
+// REJECT CALENDAR STATUS CHANGE
+// ============================================================================
+
+export async function rejectTimesheetDayChangeController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const scope = getScope(req);
+
+  const id = getPathId(req);
+
+  const input = parseTimesheetDayDecisionInput(req.body);
+
+  const result = await rejectTimesheetDayChange(scope, id, input);
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+function parseTimesheetDayRequestStatus(
+  value: string,
+): TimesheetDayRequestStatus {
+  const normalized = value.trim().toUpperCase();
+
+  if (
+    !Object.values(TimesheetDayRequestStatus).includes(
+      normalized as TimesheetDayRequestStatus,
+    )
+  ) {
+    throw new AppError(
+      "INVALID_CALENDAR_REQUEST_STATUS",
+      `Invalid calendar request status: ${value}`,
+      400,
+    );
+  }
+
+  return normalized as TimesheetDayRequestStatus;
+}
+
+function parseCalendarOptionalInteger(
+  value: unknown,
+  fieldName: string,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
+    throw new AppError(
+      "INVALID_QUERY_PARAMETER",
+      `${fieldName} must be a positive integer`,
+      400,
+    );
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new AppError(
+      "INVALID_QUERY_PARAMETER",
+      `${fieldName} must be a positive integer`,
+      400,
+    );
+  }
+
+  return parsed;
+}
+
+// ============================================================================
+// CALENDAR INTEGER
+// ============================================================================
+
+function parseCalendarInteger(value: unknown, fieldName: string): number {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
+    throw new AppError(
+      "INVALID_QUERY_PARAMETER",
+      `${fieldName} must be a positive integer`,
+      400,
+    );
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new AppError(
+      "INVALID_QUERY_PARAMETER",
+      `${fieldName} must be a positive integer`,
+      400,
+    );
+  }
+
+  return parsed;
+}
+
+// ============================================================================
+// DATE PATH PARAMETER
+// ============================================================================
+
+function getDatePathParameter(req: Request): string {
+  const value = req.params.date;
+
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new AppError(
+      "INVALID_DATE_FORMAT",
+      "Date must be in YYYY-MM-DD format",
+      400,
+    );
+  }
+
+  return value;
+}
+
+// ============================================================================
+// CALENDAR CHANGE INPUT
+// ============================================================================
+
+function parseTimesheetDayChangeInput(
+  body: unknown,
+): TimesheetDayChangeRequestInput {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new AppError(
+      "INVALID_REQUEST_BODY",
+      "Request body must be a JSON object",
+      400,
+    );
+  }
+
+  const candidate = body as Record<string, unknown>;
+
+  const requestedStatus = candidate.requestedStatus;
+
+  const reason = candidate.reason;
+
+  const allowedStatuses = [
+    "MISSED",
+    "PRESENT",
+    "WEEK_OFF",
+    "ABSENT",
+    "COMPOFF",
+    "LEAVE",
+  ] as const;
+
+  if (
+    typeof requestedStatus !== "string" ||
+    !allowedStatuses.includes(
+      requestedStatus as (typeof allowedStatuses)[number],
+    )
+  ) {
+    throw new AppError(
+      "INVALID_CALENDAR_STATUS",
+      "Invalid requested calendar status",
+      400,
+    );
+  }
+
+  if (typeof reason !== "string" || !reason.trim()) {
+    throw new AppError("CHANGE_REASON_REQUIRED", "reason is required", 400);
+  }
+
+  return {
+    requestedStatus:
+      requestedStatus as TimesheetDayChangeRequestInput["requestedStatus"],
+
+    reason: reason.trim(),
+  };
+}
+
+// ============================================================================
+// CALENDAR DECISION INPUT
+// ============================================================================
+
+function parseTimesheetDayDecisionInput(
+  body: unknown,
+): TimesheetDayDecisionInput {
+  if (body === undefined || body === null) {
+    return {};
+  }
+
+  if (typeof body !== "object" || Array.isArray(body)) {
+    throw new AppError(
+      "INVALID_REQUEST_BODY",
+      "Request body must be a JSON object",
+      400,
+    );
+  }
+
+  const candidate = body as Record<string, unknown>;
+
+  if (
+    candidate.approvalNote !== undefined &&
+    candidate.approvalNote !== null &&
+    typeof candidate.approvalNote !== "string"
+  ) {
+    throw new AppError(
+      "INVALID_APPROVAL_NOTE",
+      "approvalNote must be a string",
+      400,
+    );
+  }
+
+  const approvalNote =
+    typeof candidate.approvalNote === "string"
+      ? candidate.approvalNote.trim()
+      : undefined;
+
+  return approvalNote
+    ? {
+        approvalNote,
+      }
+    : {};
 }
 
 // ============================================================================
@@ -487,6 +897,147 @@ export async function rejectTimesheetController(
 }
 
 // ============================================================================
+// CREATE EDIT REQUEST
+// ============================================================================
+
+export async function createTimesheetEditRequestController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const employeeId = getEmployeeId(req);
+  const id = getPathId(req);
+  const input = parseEditRequestInput(req.body);
+
+  const result = await createTimesheetEditRequest(id, employeeId, input);
+
+  // Keep the existing TIMESHEET_UPDATE audit action for compatibility with
+  // the current audit.types.ts contract.
+  await auditRequest(
+    getAuditContext(req),
+    AUDIT_ACTIONS.TIMESHEET_UPDATE,
+    "TIMESHEET_EDIT_REQUEST",
+    {
+      entityId: result.id,
+      description: "Timesheet edit request created",
+      metadata: {
+        timesheetId: result.timesheetId,
+        employeeId: result.employeeId,
+        workDate: result.workDate,
+        requestedWorkingMinutes: result.requestedWorkingMinutes,
+        status: result.status,
+      },
+    },
+  );
+
+  res.status(201).json({
+    success: true,
+    data: result,
+  });
+}
+
+// ============================================================================
+// LIST EDIT REQUESTS
+// ============================================================================
+
+export async function listTimesheetEditRequestsController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const scope = getScope(req);
+  const query = parseEditRequestListQuery(req);
+
+  const result = await listTimesheetEditRequests(scope, query);
+
+  res.status(200).json({
+    success: true,
+    data: result.records,
+    meta: result.pagination,
+  });
+}
+
+// ============================================================================
+// APPROVE EDIT REQUEST
+// ============================================================================
+
+export async function approveTimesheetEditRequestController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const id = getPathId(req);
+  const employeeId = getEmployeeId(req);
+  const body = parseDecisionBody(req.body);
+
+  const result = await approveTimesheetEditRequest(
+    id,
+    employeeId,
+    body.approvalNote,
+  );
+
+  await auditRequest(
+    getAuditContext(req),
+    AUDIT_ACTIONS.TIMESHEET_APPROVE,
+    "TIMESHEET_EDIT_REQUEST",
+    {
+      entityId: id,
+      description: "Timesheet edit request approved",
+      metadata: {
+        timesheetId: result.id,
+        employeeId: result.employeeId,
+        approverEmployeeId: employeeId,
+        workDate: result.workDate,
+        status: result.status,
+      },
+    },
+  );
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+// ============================================================================
+// REJECT EDIT REQUEST
+// ============================================================================
+
+export async function rejectTimesheetEditRequestController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const id = getPathId(req);
+  const employeeId = getEmployeeId(req);
+  const body = parseDecisionBody(req.body);
+
+  const result = await rejectTimesheetEditRequest(
+    id,
+    employeeId,
+    body.approvalNote,
+  );
+
+  await auditRequest(
+    getAuditContext(req),
+    AUDIT_ACTIONS.TIMESHEET_REJECT,
+    "TIMESHEET_EDIT_REQUEST",
+    {
+      entityId: id,
+      description: "Timesheet edit request rejected",
+      metadata: {
+        timesheetId: result.timesheetId,
+        employeeId: result.employeeId,
+        approverEmployeeId: employeeId,
+        workDate: result.workDate,
+        status: result.status,
+      },
+    },
+  );
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+// ============================================================================
 // DECISION BODY
 // ============================================================================
 
@@ -585,6 +1136,181 @@ function parseListQuery(req: Request): TimesheetListQuery {
           limit,
         }
       : {}),
+  };
+}
+
+// ============================================================================
+// EDIT REQUEST QUERY
+// ============================================================================
+
+function parseEditRequestListQuery(
+  req: Request,
+): TimesheetEditRequestListQuery {
+  const employeeId =
+    typeof req.query.employeeId === "string"
+      ? req.query.employeeId.trim()
+      : undefined;
+
+  const status =
+    typeof req.query.status === "string"
+      ? parseEditRequestStatus(req.query.status)
+      : undefined;
+
+  const page = parseInteger(req.query.page, "page");
+  const limit = parseInteger(req.query.limit, "limit");
+
+  return {
+    ...(employeeId ? { employeeId } : {}),
+    ...(status ? { status } : {}),
+    ...(page !== undefined ? { page } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+  };
+}
+
+function parseEditRequestStatus(value: string): TimesheetEditRequestStatus {
+  const normalized = value.trim().toUpperCase();
+
+  if (
+    !Object.values(TimesheetEditRequestStatus).includes(
+      normalized as TimesheetEditRequestStatus,
+    )
+  ) {
+    throw new AppError(
+      "INVALID_EDIT_REQUEST_STATUS",
+      `Invalid edit request status: ${value}`,
+      400,
+    );
+  }
+
+  return normalized as TimesheetEditRequestStatus;
+}
+
+// ============================================================================
+// NULLABLE STRING PARSER
+// ============================================================================
+
+function parseNullableString(value: unknown, fieldName: string): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new AppError(
+      "INVALID_REQUEST_BODY",
+      `${fieldName} must be a string or null`,
+      400,
+    );
+  }
+
+  return value.trim() || null;
+}
+
+// ============================================================================
+// EDIT REQUEST BODY PARSER
+// ============================================================================
+
+function parseEditRequestInput(body: unknown): TimesheetEditRequestInput {
+  if (
+    body === undefined ||
+    body === null ||
+    typeof body !== "object" ||
+    Array.isArray(body)
+  ) {
+    throw new AppError(
+      "INVALID_REQUEST_BODY",
+      "Request body must be a JSON object",
+      400,
+    );
+  }
+
+  const candidate = body as Record<string, unknown>;
+
+  // --------------------------------------------------------------------------
+  // REQUESTED WORK DATE
+  // --------------------------------------------------------------------------
+
+  const requestedWorkDate =
+    typeof candidate.requestedWorkDate === "string" &&
+    candidate.requestedWorkDate.trim().length > 0
+      ? candidate.requestedWorkDate.trim()
+      : undefined;
+
+  // --------------------------------------------------------------------------
+  // REQUESTED WORKING MINUTES
+  // --------------------------------------------------------------------------
+
+  const requestedWorkingMinutes = candidate.requestedWorkingMinutes;
+
+  if (
+    typeof requestedWorkingMinutes !== "number" ||
+    !Number.isInteger(requestedWorkingMinutes) ||
+    requestedWorkingMinutes < 0
+  ) {
+    throw new AppError(
+      "INVALID_WORKING_MINUTES",
+      "requestedWorkingMinutes must be a non-negative integer",
+      400,
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // REQUESTED DESCRIPTION
+  // --------------------------------------------------------------------------
+
+  const requestedDescription = parseNullableString(
+    candidate.requestedDescription,
+    "requestedDescription",
+  );
+
+  // --------------------------------------------------------------------------
+  // REQUESTED TASK DESCRIPTION
+  // --------------------------------------------------------------------------
+
+  const requestedTaskDescription = parseNullableString(
+    candidate.requestedTaskDescription,
+    "requestedTaskDescription",
+  );
+
+  // --------------------------------------------------------------------------
+  // REASON
+  // --------------------------------------------------------------------------
+
+  if (typeof candidate.reason !== "string") {
+    throw new AppError("EDIT_REASON_REQUIRED", "reason is required", 400);
+  }
+
+  const reason = candidate.reason.trim();
+
+  if (!reason) {
+    throw new AppError("EDIT_REASON_REQUIRED", "reason is required", 400);
+  }
+
+  if (reason.length > 2000) {
+    throw new AppError(
+      "EDIT_REASON_TOO_LONG",
+      "Edit reason cannot exceed 2000 characters",
+      400,
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // RESULT
+  // --------------------------------------------------------------------------
+
+  return {
+    ...(requestedWorkDate
+      ? {
+          requestedWorkDate,
+        }
+      : {}),
+
+    requestedWorkingMinutes,
+
+    requestedDescription,
+
+    requestedTaskDescription,
+
+    reason,
   };
 }
 
@@ -742,6 +1468,8 @@ export async function exportTimesheetController(
       workingMinutes: record.workingMinutes,
 
       workingHours,
+
+      source: record.source,
 
       status: record.status,
     };

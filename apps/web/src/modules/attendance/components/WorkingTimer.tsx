@@ -1,18 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
+
 import { PieChart, Pie, Cell } from "recharts";
 
 interface WorkingTimerProps {
   checkInAt: string | null;
   isRunning: boolean;
+
+  /**
+   * Total working minutes already completed today.
+   *
+   * This includes all previously completed sessions.
+   */
+  todayWorkedMinutes?: number;
+
   targetMinutes?: number;
 }
 
 export function WorkingTimer({
   checkInAt,
   isRunning,
+  todayWorkedMinutes = 0,
   targetMinutes = 8 * 60,
 }: WorkingTimerProps) {
   const [now, setNow] = useState(() => Date.now());
+
+  // ==========================================================================
+  // LIVE CLOCK
+  // ==========================================================================
 
   useEffect(() => {
     if (!isRunning) {
@@ -28,7 +42,11 @@ export function WorkingTimer({
     };
   }, [isRunning]);
 
-  const elapsedSeconds = useMemo(() => {
+  // ==========================================================================
+  // CURRENT SESSION ELAPSED TIME
+  // ==========================================================================
+
+  const currentSessionSeconds = useMemo(() => {
     if (!isRunning || !checkInAt) {
       return 0;
     }
@@ -42,29 +60,46 @@ export function WorkingTimer({
     return Math.max(0, Math.floor((now - start) / 1000));
   }, [checkInAt, isRunning, now]);
 
+  // ==========================================================================
+  // TODAY'S CUMULATIVE TIME
+  // ==========================================================================
+
+  const baseSeconds = Math.max(0, Math.floor(todayWorkedMinutes * 60));
+
+  const totalWorkedSeconds = baseSeconds + currentSessionSeconds;
+
   const targetSeconds = targetMinutes * 60;
 
-  const progress = Math.min(100, (elapsedSeconds / targetSeconds) * 100);
+  const progress =
+    targetSeconds > 0
+      ? Math.min(100, (totalWorkedSeconds / targetSeconds) * 100)
+      : 0;
 
-  const remaining = Math.max(0, targetSeconds - elapsedSeconds);
+  const remainingSeconds = Math.max(0, targetSeconds - totalWorkedSeconds);
 
-  const hours = Math.floor(elapsedSeconds / 3600);
+  // ==========================================================================
+  // FORMAT CUMULATIVE TIME
+  // ==========================================================================
 
-  const minutes = Math.floor((elapsedSeconds % 3600) / 60);
+  const hours = Math.floor(totalWorkedSeconds / 3600);
 
-  const seconds = elapsedSeconds % 60;
+  const minutes = Math.floor((totalWorkedSeconds % 3600) / 60);
 
-  const timer = isRunning
-    ? [
-        String(hours).padStart(2, "0"),
-        String(minutes).padStart(2, "0"),
-        String(seconds).padStart(2, "0"),
-      ].join(":")
-    : "00:00:00";
+  const seconds = totalWorkedSeconds % 60;
 
-  const remainingHours = Math.floor(remaining / 3600);
+  const timer = [
+    String(hours).padStart(2, "0"),
+    String(minutes).padStart(2, "0"),
+    String(seconds).padStart(2, "0"),
+  ].join(":");
 
-  const remainingMinutes = Math.floor((remaining % 3600) / 60);
+  const remainingHours = Math.floor(remainingSeconds / 3600);
+
+  const remainingMinutes = Math.floor((remainingSeconds % 3600) / 60);
+
+  // ==========================================================================
+  // PIE CHART
+  // ==========================================================================
 
   const chartData = [
     {
@@ -73,13 +108,17 @@ export function WorkingTimer({
     },
     {
       name: "Remaining",
-      value: 100 - progress,
+      value: Math.max(0, 100 - progress),
     },
   ];
 
   const activeColor = isRunning ? "#ef4444" : "#22c55e";
 
   const remainingColor = "#707171";
+
+  // ==========================================================================
+  // RENDER
+  // ==========================================================================
 
   return (
     <div className="flex flex-col items-center justify-center">
@@ -96,6 +135,7 @@ export function WorkingTimer({
             strokeWidth={0}
           >
             <Cell fill={activeColor} />
+
             <Cell fill={remainingColor} />
           </Pie>
         </PieChart>
@@ -122,9 +162,9 @@ export function WorkingTimer({
           </span>
 
           <span className="mt-1 text-xs text-muted-foreground">
-            {isRunning
+            {remainingSeconds > 0
               ? `${remainingHours}h ${remainingMinutes}m remaining`
-              : "00:00:00"}
+              : "Target completed"}
           </span>
         </div>
       </div>

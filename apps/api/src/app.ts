@@ -28,7 +28,9 @@ import { swaggerDocument } from "@/config/swagger.js";
 import { requestId } from "@/middleware/request-id.js";
 import { notFound } from "@/middleware/not-found.js";
 import { errorHandler } from "@/middleware/error-handler.js";
-import { apiRateLimiter } from "@/middleware/rate-limit.js";
+import {
+  apiRateLimiter,
+} from "@/middleware/rate-limit.js";
 
 import routes from "@/routes/index.js";
 
@@ -48,15 +50,39 @@ app.disable("x-powered-by");
 // SECURITY
 // ============================================================================
 
-app.use(helmet());
+app.use(
+  helmet(),
+);
 
 // ============================================================================
 // CORS
 // ============================================================================
 
+const allowedOrigins = env.CORS_ORIGIN
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+console.log("CORS allowed origins:", allowedOrigins);
+
 app.use(
   cors({
-    origin: env.CORS_ORIGIN,
+    origin: (requestOrigin, callback) => {
+      if (!requestOrigin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(requestOrigin)) {
+        return callback(null, true);
+      }
+
+      console.log("CORS blocked origin:", requestOrigin);
+
+      return callback(
+        new Error(`CORS blocked origin: ${requestOrigin}`),
+      );
+    },
+    credentials: true,
   }),
 );
 
@@ -91,7 +117,9 @@ app.use(requestId);
 // HTTP LOGGING
 // ============================================================================
 
-app.use(pinoHttp());
+app.use(
+  pinoHttp(),
+);
 
 // ============================================================================
 // SWAGGER / OPENAPI DOCUMENTATION
@@ -112,9 +140,12 @@ app.use(pinoHttp());
 // OpenAPI JSON
 // --------------------------------------------------------------------------
 
-app.get("/docs.json", (_req, res) => {
-  res.json(swaggerDocument);
-});
+app.get(
+  "/docs.json",
+  (_req, res) => {
+    res.json(swaggerDocument);
+  },
+);
 
 // --------------------------------------------------------------------------
 // Swagger UI
@@ -148,8 +179,31 @@ app.use(
 //
 // ============================================================================
 
-app.use("/api", routes);
+app.use(
+  "/api",
+  routes,
+);
+// ============================================================================
+// CENTRAL API ROUTER
+// ============================================================================
+//
+// All EEMS API modules are registered inside:
+//
+//     src/routes/index.ts
+//
+// Therefore app.ts only needs one API mount:
+//
+//     /api
+//
+// Rate limiting is applied before the API router so that every API endpoint
+// receives baseline protection.
+// ============================================================================
 
+app.use(
+  "/api",
+  apiRateLimiter,
+  routes,
+);
 // ============================================================================
 // 404 HANDLER
 // ============================================================================
@@ -168,23 +222,7 @@ app.use(notFound);
 
 app.use(errorHandler);
 
-// ============================================================================
-// CENTRAL API ROUTER
-// ============================================================================
-//
-// All EEMS API modules are registered inside:
-//
-//     src/routes/index.ts
-//
-// Therefore app.ts only needs one API mount:
-//
-//     /api
-//
-// Rate limiting is applied before the API router so that every API endpoint
-// receives baseline protection.
-// ============================================================================
 
-app.use("/api", apiRateLimiter, routes);
 // ============================================================================
 // EXPORT
 // ============================================================================

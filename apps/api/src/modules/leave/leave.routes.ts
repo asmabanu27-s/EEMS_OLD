@@ -23,6 +23,7 @@ import {
   createLeaveController,
   getLeaveController,
   listLeaveController,
+  listLeaveTypesController,
   rejectLeaveController,
 } from "./leave.controller.js";
 
@@ -47,6 +48,18 @@ router.post("/", authorize("LEAVE_APPLY"), createLeaveController);
 // ============================================================================
 
 router.get("/", authorize("LEAVE_VIEW"), listLeaveController);
+
+// ============================================================================
+// LEAVE TYPES
+// ============================================================================
+//
+// GET /api/leave/types
+//
+// Active leave types available for leave application.
+//
+// ============================================================================
+
+router.get("/types", authorize("LEAVE_APPLY"), listLeaveTypesController);
 
 // ============================================================================
 // GET BY ID

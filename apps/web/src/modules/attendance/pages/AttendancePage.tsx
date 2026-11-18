@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
-import { WorkingTimer } from "@/modules/attendance/components/WorkingTimer";
 
 import {
   CalendarCheck,
@@ -8,6 +7,8 @@ import {
   LogIn,
   LogOut,
 } from "lucide-react";
+
+import { WorkingTimer } from "@/modules/attendance/components/WorkingTimer";
 
 import {
   checkIn,
@@ -41,7 +42,7 @@ function formatMinutes(minutes: number): string {
     return `${remaining}m`;
   }
 
-  return `${hours}h m`;
+  return `${hours}h ${String(remaining).padStart(2, "0")}m`;
 }
 
 function formatDateTime(value: string | null): string {
@@ -80,7 +81,6 @@ export function AttendancePage() {
     "check-in" | "check-out" | null
   >(null);
 
-
   const [error, setError] = useState<string | null>(null);
 
   // ==========================================================================
@@ -98,6 +98,7 @@ export function AttendancePage() {
       ]);
 
       setToday(todayResult);
+
       setHistory(historyResult.records);
     } catch (err) {
       console.error("Failed to load attendance", err);
@@ -119,6 +120,7 @@ export function AttendancePage() {
   async function handleCheckIn() {
     try {
       setActionLoading("check-in");
+
       setError(null);
 
       await checkIn();
@@ -163,11 +165,13 @@ export function AttendancePage() {
   async function handleCheckOut() {
     try {
       setActionLoading("check-out");
+
       setError(null);
 
       await checkOut();
 
-      // Always reload from the server after a mutation.
+      // The checkout API updates the database first.
+      // Reload the complete server state immediately afterward.
       await loadAttendance();
     } catch (error) {
       console.error("Check-out failed", error);
@@ -209,17 +213,43 @@ export function AttendancePage() {
 
   const sessions = today?.sessions ?? [];
 
+  const completedTodayMinutes = useMemo(() => {
+  return sessions
+    .filter(
+      (session) =>
+        session.status === "COMPLETED" ||
+        session.status === "AUTO_COMPLETED",
+    )
+    .reduce(
+      (total, session) =>
+        total + Math.max(0, session.workingMinutes),
+      0,
+    );
+}, [sessions]);
+
+  // --------------------------------------------------------------------------
+  // Active session
+  // --------------------------------------------------------------------------
+
   const openSession = sessions.find(
-    (session) => session.status === "OPEN" && session.checkInAt,
+    (session) => session.status === "OPEN" && Boolean(session.checkInAt),
   );
-
-
 
   const hasActiveSession = Boolean(openSession);
 
   const canCheckIn = !hasActiveSession;
 
   const canCheckOut = hasActiveSession;
+
+  // --------------------------------------------------------------------------
+  // Latest completed session
+  // --------------------------------------------------------------------------
+  //
+  // After checkout there is no OPEN session anymore.
+  // The latest completed session is therefore used by WorkingTimer so the
+  // circular timer displays the actual completed duration instead of 00:00:00.
+  //
+  // --------------------------------------------------------------------------
 
   // ==========================================================================
   // RENDER
@@ -268,6 +298,7 @@ export function AttendancePage() {
       {/* ================================================================== */}
       {/* ACTIONS */}
       {/* ================================================================== */}
+
       <Card>
         <CardHeader>
           <CardTitle>Current Session</CardTitle>
@@ -275,10 +306,12 @@ export function AttendancePage() {
 
         <CardContent>
           <WorkingTimer
-            checkInAt={openSession?.checkInAt ?? null}
-            isRunning={Boolean(openSession)}
-          />
-           <div className="flex flex-wrap gap-3 justify-center bg-color-grey">
+  checkInAt={openSession?.checkInAt ?? null}
+  isRunning={Boolean(openSession)}
+  todayWorkedMinutes={completedTodayMinutes}
+/>
+
+          <div className="flex flex-wrap justify-center gap-3">
             <Button
               onClick={handleCheckIn}
               disabled={loading || actionLoading !== null || !canCheckIn}
@@ -299,11 +332,18 @@ export function AttendancePage() {
             </Button>
           </div>
         </CardContent>
+      </Card>
 
-</Card>
-<Card>
+      {/* ================================================================== */}
+      {/* TODAY'S SESSIONS */}
+      {/* ================================================================== */}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Today's Sessions</CardTitle>
+        </CardHeader>
+
         <CardContent className="space-y-6">
-         
           {sessions.length === 0 ? (
             <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
               No attendance session has been recorded today.

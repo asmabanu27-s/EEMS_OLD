@@ -78,6 +78,7 @@ const permissions = [
 
   ["TIMESHEET_VIEW", "View timesheets"],
   ["TIMESHEET_EXPORT", "Export timesheets"],
+  ["TIMESHEET_APPROVE", "Approve or reject timesheet edit requests"],
 
   ["NOTIFICATION_VIEW", "View notifications"],
   ["NOTIFICATION_MANAGE", "Manage notifications"],
@@ -193,6 +194,7 @@ const rolePermissions: Record<RoleCode, readonly string[]> = {
     "LEAVE_APPROVE",
 
     "TIMESHEET_VIEW",
+    "TIMESHEET_APPROVE",
     "TIMESHEET_EXPORT",
 
     "NOTIFICATION_VIEW",
@@ -223,7 +225,9 @@ const rolePermissions: Record<RoleCode, readonly string[]> = {
     "LEAVE_VIEW",
     "LEAVE_APPROVE",
 
+    "TIMESHEET_APPROVE",
     "TIMESHEET_VIEW",
+    "TIMESHEET_EXPORT",
 
     "NOTIFICATION_VIEW",
 
@@ -249,6 +253,7 @@ const rolePermissions: Record<RoleCode, readonly string[]> = {
     "LEAVE_APPLY",
 
     "TIMESHEET_VIEW",
+    "TIMESHEET_EXPORT",
 
     "NOTIFICATION_VIEW",
 
@@ -327,7 +332,7 @@ async function main() {
   });
 
   const permissionMap = new Map(
-    permissionRecords.map((permission) => [permission.code, permission.id]),
+    permissionRecords.map((permissionCountermission) => [permission.code, permission.id]),
   );
 
   // --------------------------------------------------------------------------

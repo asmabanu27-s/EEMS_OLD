@@ -62,6 +62,7 @@ import {
   cancelLeaveRequest,
   createLeaveRequest,
   getLeaveRequestById,
+  listActiveLeaveTypes,
   listLeaveRequests,
   rejectLeaveRequest,
 } from "./leave.service.js";
@@ -395,6 +396,26 @@ export async function listLeaveController(
     success: true,
     data: result.requests,
     meta: result.pagination,
+  });
+}
+
+// ============================================================================
+// GET /api/leave/types
+// ============================================================================
+//
+// Returns active leave types available for new leave applications.
+//
+// ============================================================================
+
+export async function listLeaveTypesController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const leaveTypes = await listActiveLeaveTypes();
+
+  res.status(200).json({
+    success: true,
+    data: leaveTypes,
   });
 }
 
